@@ -1,0 +1,11 @@
+﻿class_id,class_name,support,predicted_count,recall_class_accuracy,precision_prediction_success
+0,T-shirt,1000,1104,89.5,81.06884
+1,Trouser,1000,996,98.6,98.99599
+2,Pullover,1000,1182,92.0,77.834175
+3,Dress,1000,942,87.0,92.35669
+4,Coat,1000,862,77.100006,89.44315
+5,Sandal,1000,981,97.2,99.08257
+6,Shirt,1000,899,67.9,75.528366
+7,Sneaker,1000,1004,96.7,96.31474
+8,Bag,1000,1014,99.2,97.830376
+9,Ankle boot,1000,1016,97.6,96.062996
