@@ -2,8 +2,9 @@
 
 包含《数字图像处理》课程作业所涉及到的所有代码及一些没有放入正文中的材料。
 
-其中 `train_fashion_models.py` 为主要实验的代码。
-    `train_gce_noise.py` 为加入抗噪机制后的消融实验代码
+其中 
+- `train_fashion_models.py` 为主要实验的代码
+- `train_gce_noise.py` 为加入抗噪机制后的消融实验代码
 
 实验结果文件说明：
 - `main`：四个模型的主实验结果
