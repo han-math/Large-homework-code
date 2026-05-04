@@ -17,3 +17,5 @@
 补充实验的代码参见：[Google Colab Notebook](https://colab.research.google.com/drive/1qYSnc_-gfnTOZQWMOZNAYpwijIX7BY9Q?usp=sharing)
 
 在 Colab 中您可以配置免费限额的 GPU 来完成实验。
+
+`彩蛋` 为在完成文章撰写后对SE模块的进一步反思，文章我们采用了传统的SE模块，但效果不尽如人意，同时我们也分析了结果说明注意力机制确实起了效果，但我们还是希望进一步探究在传统SE模块上做出一些基于文章已经构建的微小改进能否取得更理想的结果，具体内容可进一步通过文件夹查看。
