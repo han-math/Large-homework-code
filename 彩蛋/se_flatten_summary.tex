@@ -1,0 +1,116 @@
+\documentclass[12pt,a4paper]{ctexart}
+
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\captionsetup{font=small}
+
+\title{Fashion-MNIST 上 SE 模块 Squeeze 操作改进实验总结}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{问题背景}
+
+在之前的实验中，我们在 Fashion-MNIST 上对比了 Basic CNN（SPP 分类头）和标准 SE-CNN，
+发现 SE 模块几乎没有带来性能提升（两者测试准确率均在 90.5\% 左右）。
+我们猜测原因在于：该任务的 CNN 特征提取器只有两层卷积，输出特征图尺寸仅为 $7 \times 7$，
+属于较浅的特征表示。标准 SE 模块在 Squeeze 阶段使用全局平均池化（Global Average Pooling, GAP），
+将每个通道的 $7 \times 7 = 49$ 个空间位置压缩为单个标量。在特征本身已经信息量有限的情况下，
+这种激进的压缩可能导致空间细节丢失，使得后续 Excitation 阶段的全连接层难以学到有区分度的通道注意力权重。
+
+基于此，我们提出将 SE 模块中 Squeeze 阶段的全局平均池化替换为 Flatten（展平）操作：
+不压缩空间维度，而是将 $C \times H \times W$ 的特征图完整展平为 $C \cdot H \cdot W$ 维向量送入 Excitation 的全连接层，
+让网络自己学习哪些空间位置对通道注意力重要。
+
+\section{模型架构}
+
+所有模型共享相同的 CNN 特征提取器和分类头：
+
+\begin{itemize}[nosep]
+    \item 特征提取器：两层卷积（$1 \to 32 \to 64$ 通道），每层接 ReLU 和 $2 \times 2$ MaxPool，输出 $64 \times 7 \times 7$ 特征图；
+    \item 分类头：SPP（Spatial Pyramid Pooling），使用 $1 \times 1$、$2 \times 2$、$4 \times 4$ 三个尺度；
+    \item SE 模块：位于特征提取器之后、分类头之前，三种变体：
+    \begin{enumerate}[nosep]
+        \item 无 SE（Basic CNN）：直接经过分类头；
+        \item SE-GAP（标准 SE）：Squeeze = 全局平均池化，Excitation = FC(64 $\to$ 8) $\to$ ReLU $\to$ FC(8 $\to$ 64)；
+        \item SE-Flatten（本文改进）：Squeeze = Flatten，Excitation = FC(3136 $\to$ 128) $\to$ ReLU $\to$ FC(128 $\to$ 64)。
+    \end{enumerate}
+\end{itemize}
+
+\section{实验设计}
+
+所有实验使用完全相同的设置：随机种子 42，Batch Size 120，Adam 优化器（学习率 $10^{-3}$），
+交叉熵损失，训练 10 个 Epoch，无标签噪声。
+
+\subsection{实验一：三模型对比}
+
+对比 Basic CNN（无 SE）、SE-CNN（GAP）和 SE-CNN（Flatten）的测试集准确率。
+结果显示 SE-Flatten 达到 92.01\%，比 Basic CNN 的 90.59\% 高出约 1.4 个百分点。
+但 SE-Flatten 的参数量从 3.2 万飙升至 44.2 万，主要来自 FC(3136 $\to$ 128) 层。
+此时无法判断性能提升是源于架构改进（Flatten 保留了空间信息）还是单纯的参数量增加。
+
+\subsection{实验二：随机冻结对照（Random Frozen SE Control）}
+
+为排除参数量增加的干扰，引入一组对照实验：构建与 SE-Flatten 完全相同架构的模型，
+但将其 SE 模块的两个全连接层（fc1 和 fc2）在随机初始化后冻结（requires\_grad = False），
+仅训练特征提取器和分类头。
+
+这一设计的关键逻辑：
+\begin{itemize}[nosep]
+    \item 可训练参数量降回 32,266（与 Basic CNN 完全相同）；
+    \item 前向传播仍经过随机 SE 模块，特征图被一组随机通道权重逐通道缩放——等价于注入随机乘性噪声；
+    \item 如果 SE-Flatten 的 92.01\% 只是参数量堆出来的，那么随机冻结版的性能应该接近 92.01\%；
+    \item 如果 SE 模块真的学到了有意义的注意力，那么随机冻结版性能应显著低于 SE-Flatten，甚至因随机噪声干扰而低于 Basic CNN。
+\end{itemize}
+
+\section{实验结果}
+
+\begin{table}[htbp]
+\centering
+\caption{四个模型的测试准确率对比（Fashion-MNIST，无噪声）}
+\label{tab:results}
+\begin{tabular}{lrrr}
+\toprule
+模型 & 最佳测试准确率 & 可训练参数 & 总参数 \\
+\midrule
+Basic CNN（无 SE） & 90.59\% & 32,266 & 32,266 \\
+SE-CNN（GAP） & 90.55\% & 33,362 & 33,362 \\
+SE-CNN（Flatten） & 92.01\% & 442,058 & 442,058 \\
+SE-CNN（Flatten, RandFrozen） & 90.27\% & 32,266 & 442,058 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+从上表可以得出：
+
+\begin{enumerate}[nosep]
+    \item 标准 SE-GAP 无效：SE-CNN（GAP）准确率 90.55\%，与 Basic CNN（90.59\%）持平甚至略低，证实 GAP 在浅层特征上压缩过度，导致通道注意力机制未能充分激活；
+    \item SE-Flatten 显著有效：准确率达 92.01\%，比 Basic CNN 高 1.42 个百分点；
+    \item 随机冻结对照组排除了参数量假象：该组可训练参数与 Basic CNN 完全一致（32,266），但 SE 模块的 41 万随机权重被冻结后，准确率跌至 90.27\%，甚至比 Basic CNN 还低 0.32 个百分点。这说明：
+    \begin{itemize}[nosep]
+        \item 未训练的随机注意力权重等同于乘性噪声，干扰了正常特征表达；
+        \item SE-Flatten 的 92.01\% 不是靠参数量堆出来的，而是 SE 模块通过训练学到了真正有用的通道注意力；
+        \item 同样的 41 万参数，训练前拖后腿（90.27\%），训练后成加速器（92.01\%），差距达 1.74\%。
+    \end{itemize}
+\end{enumerate}
+
+\section{结论}
+
+通过两组实验，本文验证了以下结论：
+
+\begin{enumerate}[nosep]
+    \item 在浅层 CNN 特征提取器下，标准 SE 模块的全局平均池化会丢失宝贵的空间信息，导致通道注意力机制未能充分激活；
+    \item 将 Squeeze 阶段的全局平均池化替换为 Flatten，保留了完整的 $C \times H \times W$ 空间信息，实验表明该转换能显著提升分类性能（+1.42\%）。我们推测其有效性可能源于 Excitation 阶段的 FC 层同时考虑了通道与空间位置的交互信息——这与 CBAM\footnote{S. Woo et al., ``CBAM: Convolutional Block Attention Module,'' ECCV 2018.} 等显式建模通道-空间注意力的思路有相通之处，但本文方法是否确实学到了空间交互注意力，以及其与 CBAM 的直接对比，仍有待进一步实验验证；
+    \item 随机冻结对照实验有力地排除了参数量增加的干扰——SE-Flatten 的性能提升来自注意力权重的有效训练，而非参数量的简单堆砌。
+\end{enumerate}
+
+\end{document}
